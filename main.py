@@ -1,3 +1,53 @@
+# main.py
+import os
+import logging
+from fastapi import FastAPI, Request, HTTPException
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import CommandStart
+from aiogram.types import Update, Message
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("ildar_webhook")
+
+# --- ENV ---
+BOT_TOKEN = os.environ["BOT_TOKEN"]  # важно: ключ в Render называется именно BOT_TOKEN
+WEBHOOK_SECRET = os.getenv("WEBHOOKSECRET") or os.getenv("WEBHOOK_SECRET") or "ai123secret"
+
+# --- Aiogram ---
+bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+dp = Dispatcher()
+
+@dp.message(CommandStart())
+async def on_start_cmd(m: Message):
+    await m.answer("Готов помогать с AI‑дизайном. Напиши «site» — и начнём.")
+
+@dp.message(F.text.lower() == "site")
+async def on_site(m: Message):
+    await m.answer("Принял «site». Продолжаем по сценарию!")
+
+# --- FastAPI ---
+app = FastAPI()
+
+@app.get("/ping")
+async def ping():
+    return {"ok": True}
+
+@app.post("/tg/{secret}")
+async def tg_webhook(secret: str, request: Request):
+    # 1) проверяем секрет из URL
+    if secret != WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="bad secret")
+
+    # 2) (не обязательно) сверяем заголовок секрета от Telegram
+    header_secret = request.headers.get("x-telegram-bot-api-secret-token")
+    if header_secret and header_secret != WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="bad secret header")
+
+    # 3) читаем апдейт и прокармливаем в aiogram
+    data = await request.json()
+    update = Update.model_validate(data)
+    await dp.feed_update(bot, update)
+    return {"ok": True}
 
 import logging
 from fastapi import FastAPI, Request, HTTPException
